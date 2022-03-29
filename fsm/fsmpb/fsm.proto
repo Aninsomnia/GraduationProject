@@ -10,8 +10,11 @@ option (gogoproto.goproto_unrecognized_all) = false;
 option (gogoproto.goproto_sizecache_all) = false;
 
 enum MessageType {
-    MsgBeat      = 0;
-    MsgHeartbeat = 1;
+    MsgBeat         = 0;
+    MsgHeartbeat    = 1;
+    MsgEtcdPend     = 2;
+    MsgEtcdStop     = 3;
+    MsgEtcdReCovery = 4;
 }
 
 message Message {

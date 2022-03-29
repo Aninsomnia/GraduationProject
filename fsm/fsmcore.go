@@ -18,9 +18,7 @@ type Config struct {
 	peerID uint64
 	// 发送心跳的周期超时时间
 	HeartbeatSendTick int
-	// 接收心跳判断是否失效的超时时间
-	HeartbeatReceiveTick int
-	logger               Logger
+	logger            Logger
 }
 
 type fsmCore struct {
@@ -29,9 +27,6 @@ type fsmCore struct {
 
 	heartbeatSendTimeout int
 	heartbeatSendElapsed int
-
-	heartbeatReceiveTimeout int
-	heartbeatReceiveElapsed int
 
 	state StateType
 	msgs  []pb.Message
@@ -42,11 +37,10 @@ type fsmCore struct {
 
 func newfsmCore(c *Config) *fsmCore {
 	f := &fsmCore{
-		ID:                      c.ID,
-		peerID:                  c.peerID,
-		heartbeatSendTimeout:    c.HeartbeatSendTick,
-		heartbeatReceiveTimeout: c.HeartbeatReceiveTick,
-		logger:                  c.logger,
+		ID:                   c.ID,
+		peerID:               c.peerID,
+		heartbeatSendTimeout: c.HeartbeatSendTick,
+		logger:               c.logger,
 	}
 	f.becomeSingleRunning()
 	f.logger.Infof("fsmCore %x was created", f.ID)
@@ -57,7 +51,7 @@ func (f *fsmCore) Step(m pb.Message) error {
 	case pb.MsgBeat:
 		f.sendHeartbeat()
 
-	// 对于pb.MsgHeartbeat类型
+	// 对于pb.MsgHeartbeat、MsgEtcdPend、MsgEtcdStop、MsgEtcdReCovery类型
 	default:
 		if err := f.step(f, m); err != nil {
 			return err
@@ -71,50 +65,38 @@ type stepFunc func(f *fsmCore, m pb.Message) error
 
 func stepDualRunning(f *fsmCore, m pb.Message) error {
 	switch m.Type {
-	// 在dualRunning状态下收到心跳，若心跳包中指明对方etcd已故障：
-	// 1）状态将变为pending，2）发起仲裁请求
-	case pb.MsgHeartbeat:
-		f.heartbeatReceiveElapsed = 0
-		if m.IsEtcdStoped {
-			f.becomePending()
-			// TODO:发起仲裁
-			return nil
-		}
-	}
+	case pb.MsgEtcdPend:
+		f.becomePending()
+	case pb.MsgEtcdStop:
+		f.becomeEtcdStoped()
 
+	}
 	return nil
 }
 func stepPending(f *fsmCore, m pb.Message) error {
 	switch m.Type {
-	// 在pending状态下收到心跳，若心跳包中指明对方etcd未故障：
-	// 1）状态变为dualRunning，2）解除仲裁
-	case pb.MsgHeartbeat:
-		f.heartbeatReceiveElapsed = 0
-		if !m.IsEtcdStoped {
-			f.becomeDualRunning()
-			// TODO:解除仲裁
-		}
+	case pb.MsgEtcdStop:
+		f.becomeEtcdStoped()
+	case pb.MsgEtcdReCovery:
+		f.becomeDualRunning()
 	}
 	return nil
 }
 func stepSingleRunning(f *fsmCore, m pb.Message) error {
 	switch m.Type {
-	// 在singleRunning状态下收到心跳，若心跳包中指明对方etcd未故障：
-	// 1）执行扩容，2）解除仲裁
-	case pb.MsgHeartbeat:
-		f.heartbeatReceiveElapsed = 0
-		if !m.IsEtcdStoped {
-			f.becomeDualRunning()
-			// TODO:扩容
-		}
+	//该状态下不可能收到MsgEtcdPend
+	//该状态下不可能收到MsgEtcdReCovery
+	case pb.MsgEtcdStop:
+		f.becomeEtcdStoped()
 
 	}
 	return nil
 }
 func stepEtcdStoped(f *fsmCore, m pb.Message) error {
 	switch m.Type {
-	case pb.MsgHeartbeat:
-		return nil
+	//该状态下不可能收到MsgEtcdPend
+	//该状态下不可能收到MsgEtcdStop
+	//该状态下不可能收到MsgEtcdReCovery
 
 	}
 	return nil
@@ -123,6 +105,7 @@ func stepEtcdStoped(f *fsmCore, m pb.Message) error {
 func (f *fsmCore) send(m pb.Message) {
 	f.msgs = append(f.msgs, m)
 }
+
 func (f *fsmCore) sendHeartbeat() {
 	isEtcdStoped := (f.state == etcdStoped)
 	m := pb.Message{
@@ -139,7 +122,6 @@ func (f *fsmCore) requestArbitration() {
 
 func (f *fsmCore) tick() {
 	f.heartbeatSendElapsed++
-	f.heartbeatReceiveElapsed++
 
 	// 判断是否该发送心跳
 	if f.heartbeatSendElapsed >= f.heartbeatSendTimeout {
@@ -147,11 +129,6 @@ func (f *fsmCore) tick() {
 		if err := f.Step(pb.Message{Type: pb.MsgBeat}); err != nil {
 			f.logger.Debugf("error occurred during checking sending heartbeat: %v", err)
 		}
-	}
-	// 判断是否已经无法接收来自对方的心跳
-	if f.heartbeatReceiveElapsed >= f.heartbeatReceiveTimeout {
-		f.heartbeatReceiveElapsed = 0
-		//TODO 剩余处理
 	}
 }
 func (f *fsmCore) reset() {
