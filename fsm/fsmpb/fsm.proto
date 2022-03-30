@@ -12,14 +12,22 @@ option (gogoproto.goproto_sizecache_all) = false;
 enum MessageType {
     MsgBeat         = 0;
     MsgHeartbeat    = 1;
-    MsgEtcdPend     = 2;
-    MsgEtcdStop     = 3;
-    MsgEtcdReCovery = 4;
+    MsgReqArbit     = 2;
+    MsgReqArbitResp = 3;
+    MsgReleaseArbit = 4;
+    MsgMemberAdd    = 5;
+    MsgMemberAddResp= 6;
+}
+
+enum StateType {
+    DualRunning =0;
+	FaultPending =1;
+	RecoveryPending =2;
+	SingleRunning =3;
+	EtcdStoped =4;
 }
 
 message Message {
 	optional MessageType type                = 1  [(gogoproto.nullable) = false];
-    optional uint64      to                  = 2  [(gogoproto.nullable) = false];
-	optional uint64      from                = 3  [(gogoproto.nullable) = false];
-    optional bool        isEtcdStoped        = 4  [(gogoproto.nullable) = false];
+    optional StateType      state               = 3  [(gogoproto.nullable) = false];
 }
