@@ -44,186 +44,190 @@ type fsmCore struct {
 }
 
 func newfsmCore(c *Config) *fsmCore {
-	f := &fsmCore{
+	fc := &fsmCore{
 		heartbeatSendTimeout:    c.HeartbeatSendTick,
 		reqArbitSendTimeout:     c.ReqArbitSendTick,
 		heartbeatReceiveTimeout: c.HeartbeatReceiveTick,
 		logger:                  c.logger,
 	}
 
-	f.heartbeatSendElapsed = 0
-	f.heartbeatReceiveElapsed = 0
-	f.reqArbitSendElapsed = 0
+	fc.heartbeatSendElapsed = 0
+	fc.heartbeatReceiveElapsed = 0
+	fc.reqArbitSendElapsed = 0
 
-	f.becomeDualRunning()
-	f.logger.Infof("fsmCore %x was created")
-	return f
+	fc.becomeFaultPending()
+	fc.logger.Infof("fsmCore %x was created")
+	return fc
 }
-func (f *fsmCore) Step(m pb.Message) error {
+func (fc *fsmCore) Step(m pb.Message) error {
 	switch m.Type {
 	default:
-		if err := f.step(f, m); err != nil {
+		if err := fc.step(fc, m); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-type stepFunc func(f *fsmCore, m pb.Message) error
+type stepFunc func(fc *fsmCore, m pb.Message) error
 
-func stepDualRunning(f *fsmCore, m pb.Message) error {
+func stepDualRunning(fc *fsmCore, m pb.Message) error {
 	switch m.Type {
 	case pb.MsgMemberAddResp:
 		return nil
 	case pb.MsgHeartbeat:
 		// dualRunning状态下收到了对方的异常心跳
 		if m.State != pb.DualRunning {
-			f.becomeFaultPending()
+			fc.becomeFaultPending()
 		}
 	}
 	return nil
 }
-func stepFaultPending(f *fsmCore, m pb.Message) error {
+func stepFaultPending(fc *fsmCore, m pb.Message) error {
 	switch m.Type {
 
 	}
 	return nil
 }
-func stepSingleRunning(f *fsmCore, m pb.Message) error {
+func stepSingleRunning(fc *fsmCore, m pb.Message) error {
 	switch m.Type {
 	case pb.MsgMemberAddResp:
 		// recoveryPending状态下收到了MemberAddResp，说明之前发送的MemberAdd被对方接收
-		f.becomeRecoveryPending()
+		fc.becomeRecoveryPending()
 		// TODO:执行扩容
 	}
 	return nil
 }
-func stepRecoveryPending(f *fsmCore, m pb.Message) error {
+func stepRecoveryPending(fc *fsmCore, m pb.Message) error {
 	switch m.Type {
 
 	}
 	return nil
 }
 
-func stepEtcdStoped(f *fsmCore, m pb.Message) error {
+func stepEtcdStoped(fc *fsmCore, m pb.Message) error {
 	switch m.Type {
 	case pb.MsgMemberAdd:
 		// etcdStoped状态下收到了对方的MsgMemberAdd，说明对方已经尝试扩容集群
-		f.becomeRecoveryPending()
+		fc.becomeRecoveryPending()
 		// TODO:执行扩容
 	}
 	return nil
 }
 
-func (f *fsmCore) send(m pb.Message) {
-	f.msgs = append(f.msgs, m)
+func (fc *fsmCore) send(m pb.Message) {
+	fc.msgs = append(fc.msgs, m)
 }
 
-func (f *fsmCore) requestArbitration() {
+func (fc *fsmCore) requestArbitration() {
 	m := pb.Message{
 		Type: pb.MsgReqArbit,
 	}
-	f.send(m)
+	fc.send(m)
 }
 
-func (f *fsmCore) releaseArbitration() {
+func (fc *fsmCore) releaseArbitration() {
 	m := pb.Message{
 		Type: pb.MsgReleaseArbit,
 	}
-	f.send(m)
+	fc.send(m)
 }
 
-func (f *fsmCore) tickDualRunning() {
-	f.heartbeatSendElapsed++
-	f.heartbeatReceiveElapsed++
+func (fc *fsmCore) tickDualRunning() {
+	fc.heartbeatSendElapsed++
+	fc.heartbeatReceiveElapsed++
 
 	// 判断是否该发送心跳
-	if f.heartbeatSendElapsed >= f.heartbeatSendTimeout {
-		f.heartbeatSendElapsed = 0
-		f.send(pb.Message{Type: pb.MsgHeartbeat, State: pb.DualRunning})
+	if fc.heartbeatSendElapsed >= fc.heartbeatSendTimeout {
+		fc.heartbeatSendElapsed = 0
+		fc.send(pb.Message{Type: pb.MsgHeartbeat, State: pb.DualRunning})
 	}
 
 	// 判断来自对方的心跳是否超时
-	if f.heartbeatReceiveElapsed >= f.heartbeatReceiveTimeout {
-		f.heartbeatReceiveElapsed = 0
+	if fc.heartbeatReceiveElapsed >= fc.heartbeatReceiveTimeout {
+		fc.heartbeatReceiveElapsed = 0
 		// 状态转变
-		f.becomeFaultPending()
+		fc.becomeFaultPending()
 	}
 }
-func (f *fsmCore) tickFaultPending() {
-	f.heartbeatSendElapsed++
-	f.reqArbitSendElapsed++
+func (fc *fsmCore) tickFaultPending() {
+	fc.heartbeatSendElapsed++
+	fc.reqArbitSendElapsed++
 
 	// 判断是否该发送心跳
-	if f.heartbeatSendElapsed >= f.heartbeatSendTimeout {
-		f.heartbeatSendElapsed = 0
-		f.send(pb.Message{Type: pb.MsgHeartbeat, State: pb.FaultPending})
+	if fc.heartbeatSendElapsed >= fc.heartbeatSendTimeout {
+		fc.heartbeatSendElapsed = 0
+		fc.send(pb.Message{Type: pb.MsgHeartbeat, State: pb.FaultPending})
 	}
 	// 判断是否该发送仲裁请求
-	if f.reqArbitSendElapsed >= f.reqArbitSendTimeout {
-		f.reqArbitSendElapsed = 0
-		f.send(pb.Message{Type: pb.MsgReqArbit})
+	if fc.reqArbitSendElapsed >= fc.reqArbitSendTimeout {
+		fc.reqArbitSendElapsed = 0
+		fc.send(pb.Message{Type: pb.MsgReqArbit})
 	}
 }
-func (f *fsmCore) tickSingleRunning() {
-	f.heartbeatSendElapsed++
+func (fc *fsmCore) tickSingleRunning() {
+	fc.heartbeatSendElapsed++
 
 	// 判断是否该发送心跳
-	if f.heartbeatSendElapsed >= f.heartbeatSendTimeout {
-		f.heartbeatSendElapsed = 0
-		f.send(pb.Message{Type: pb.MsgMemberAdd, State: pb.SingleRunning})
+	if fc.heartbeatSendElapsed >= fc.heartbeatSendTimeout {
+		fc.heartbeatSendElapsed = 0
+		fc.send(pb.Message{Type: pb.MsgMemberAdd, State: pb.SingleRunning})
 	}
 }
-func (f *fsmCore) tickRecoveryPending() {
-	f.heartbeatSendElapsed++
+func (fc *fsmCore) tickRecoveryPending() {
+	fc.heartbeatSendElapsed++
 
 	// 判断是否该发送心跳，并且通知member add
-	if f.heartbeatSendElapsed >= f.heartbeatSendTimeout {
-		f.heartbeatSendElapsed = 0
+	if fc.heartbeatSendElapsed >= fc.heartbeatSendTimeout {
+		fc.heartbeatSendElapsed = 0
 		// 如果是新加入的节点
-		if !f.isHasArbitrationLock {
-			f.send(pb.Message{Type: pb.MsgMemberAddResp, State: pb.RecoveryPending})
+		if !fc.isHasArbitrationLock {
+			fc.send(pb.Message{Type: pb.MsgMemberAddResp, State: pb.RecoveryPending})
 		}
 
 	}
 }
-func (f *fsmCore) tickEtcdStoped() {
-	f.heartbeatSendElapsed++
+func (fc *fsmCore) tickEtcdStoped() {
+	fc.heartbeatSendElapsed++
 
 	// 判断是否该发送心跳
-	if f.heartbeatSendElapsed >= f.heartbeatSendTimeout {
-		f.heartbeatSendElapsed = 0
-		f.send(pb.Message{Type: pb.MsgHeartbeat, State: pb.EtcdStoped})
+	if fc.heartbeatSendElapsed >= fc.heartbeatSendTimeout {
+		fc.heartbeatSendElapsed = 0
+		fc.send(pb.Message{Type: pb.MsgHeartbeat, State: pb.EtcdStoped})
 	}
 }
 
-func (f *fsmCore) becomeDualRunning() {
+func (fc *fsmCore) becomeDualRunning() {
 
-	f.state = dualRunning
-	f.step = stepDualRunning
-	f.tick = f.tickDualRunning
+	fc.state = dualRunning
+	fc.step = stepDualRunning
+	fc.tick = fc.tickDualRunning
 }
-func (f *fsmCore) becomeFaultPending() {
-	f.state = faultPending
-	f.step = stepFaultPending
-	f.tick = f.tickFaultPending
+func (fc *fsmCore) becomeFaultPending() {
+	fc.state = faultPending
+	fc.step = stepFaultPending
+	fc.tick = fc.tickFaultPending
 }
-func (f *fsmCore) becomeRecoveryPending() {
+func (fc *fsmCore) becomeRecoveryPending() {
 
-	f.state = recoveryPending
-	f.step = stepRecoveryPending
-	f.tick = f.tickRecoveryPending
+	fc.state = recoveryPending
+	fc.step = stepRecoveryPending
+	fc.tick = fc.tickRecoveryPending
 
 }
-func (f *fsmCore) becomeSingleRunning() {
+func (fc *fsmCore) becomeSingleRunning() {
 
-	f.state = singleRunning
-	f.step = stepSingleRunning
-	f.tick = f.tickSingleRunning
+	fc.state = singleRunning
+	fc.step = stepSingleRunning
+	fc.tick = fc.tickSingleRunning
 }
-func (f *fsmCore) becomeEtcdStoped() {
+func (fc *fsmCore) becomeEtcdStoped() {
 
-	f.state = etcdStoped
-	f.step = stepEtcdStoped
-	f.tick = f.tickEtcdStoped
+	fc.state = etcdStoped
+	fc.step = stepEtcdStoped
+	fc.tick = fc.tickEtcdStoped
+}
+
+func (fc *fsmCore) advance(rd Ready) {
+
 }
