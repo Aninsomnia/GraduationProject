@@ -26,7 +26,7 @@ type Ready struct {
 	Messages []pb.Message
 }
 
-func StartFSm(c *Config) FSM {
+func StartFsm(c *Config) FSM {
 	fc := newfsmCore(c)
 	f := &fsm{
 		recvc:    make(chan pb.Message),
