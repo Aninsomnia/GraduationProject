@@ -45,7 +45,7 @@ func getLogger() Logger {
 }
 
 var (
-	defaultLogger = &DefaultLogger{Logger: log.New(os.Stderr, "fsm", log.LstdFlags)}
+	defaultLogger = &DefaultLogger{Logger: log.New(os.Stderr, "fsm: ", log.LstdFlags)}
 	discardLogger = &DefaultLogger{Logger: log.New(io.Discard, "", 0)}
 	fsmLoggerMu   sync.Mutex
 	fsmLogger     = Logger(defaultLogger)

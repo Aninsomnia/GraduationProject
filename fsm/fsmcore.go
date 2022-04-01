@@ -21,7 +21,6 @@ type Config struct {
 	HeartbeatReceiveTick int
 	// 仲裁请求的发送周期
 	ReqArbitSendTick int
-	logger           Logger
 }
 
 type fsmCore struct {
@@ -48,15 +47,14 @@ func newfsmCore(c *Config) *fsmCore {
 		heartbeatSendTimeout:    c.HeartbeatSendTick,
 		reqArbitSendTimeout:     c.ReqArbitSendTick,
 		heartbeatReceiveTimeout: c.HeartbeatReceiveTick,
-		logger:                  c.logger,
 	}
 
 	fc.heartbeatSendElapsed = 0
 	fc.heartbeatReceiveElapsed = 0
 	fc.reqArbitSendElapsed = 0
-
+	fc.logger = fsmLogger
 	fc.becomeFaultPending()
-	fc.logger.Infof("fsmCore %x was created")
+	fc.logger.Infof("fsmCore was created")
 	return fc
 }
 func (fc *fsmCore) Step(m pb.Message) error {
@@ -121,14 +119,14 @@ func (fc *fsmCore) send(m pb.Message) {
 
 func (fc *fsmCore) requestArbitration() {
 	m := pb.Message{
-		Type: pb.MsgReqArbit,
+		Type: pb.MsgArbitRequest,
 	}
 	fc.send(m)
 }
 
 func (fc *fsmCore) releaseArbitration() {
 	m := pb.Message{
-		Type: pb.MsgReleaseArbit,
+		Type: pb.MsgArbitRelease,
 	}
 	fc.send(m)
 }
@@ -162,7 +160,7 @@ func (fc *fsmCore) tickFaultPending() {
 	// 判断是否该发送仲裁请求
 	if fc.reqArbitSendElapsed >= fc.reqArbitSendTimeout {
 		fc.reqArbitSendElapsed = 0
-		fc.send(pb.Message{Type: pb.MsgReqArbit})
+		fc.send(pb.Message{Type: pb.MsgArbitRequest})
 	}
 }
 func (fc *fsmCore) tickSingleRunning() {

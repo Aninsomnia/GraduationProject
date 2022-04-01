@@ -12,9 +12,9 @@ option (gogoproto.goproto_sizecache_all) = false;
 enum MessageType {
     MsgBeat         = 0;
     MsgHeartbeat    = 1;
-    MsgReqArbit     = 2;
-    MsgReqArbitResp = 3;
-    MsgReleaseArbit = 4;
+    MsgArbitRequest     = 2;
+    MsgArbitRelease = 3;
+    MsgArbitResponse = 4;
     MsgMemberAdd    = 5;
     MsgMemberAddResp= 6;
 }
