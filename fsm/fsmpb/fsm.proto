@@ -15,8 +15,14 @@ enum MessageType {
     MsgArbitRequest     = 2;
     MsgArbitRelease = 3;
     MsgArbitResponse = 4;
-    MsgMemberAdd    = 5;
-    MsgMemberAddResp= 6;
+    MsgArbitShutdown = 5;
+    MsgArbitShrink = 6;
+    MsgEtcdShutdown = 7;
+    MsgEtcdShrink = 8;
+    MsgMemberAdd    = 9;
+    MsgMemberAddResp = 10;
+    MsgEtcdRunning = 11;
+    MsgEtcdStoped = 12;
 }
 
 enum StateType {
@@ -29,5 +35,6 @@ enum StateType {
 
 message Message {
 	optional MessageType type                = 1  [(gogoproto.nullable) = false];
-    optional StateType      state               = 3  [(gogoproto.nullable) = false];
+    optional StateType      state               = 2  [(gogoproto.nullable) = false];
+    optional uint64      term               = 3  [(gogoproto.nullable) = false];
 }

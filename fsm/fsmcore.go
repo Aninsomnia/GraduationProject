@@ -24,6 +24,8 @@ type Config struct {
 }
 
 type fsmCore struct {
+	Term uint64
+
 	heartbeatSendTimeout int
 	heartbeatSendElapsed int
 
@@ -49,6 +51,7 @@ func newfsmCore(c *Config) *fsmCore {
 		heartbeatReceiveTimeout: c.HeartbeatReceiveTick,
 	}
 
+	fc.Term = 1
 	fc.heartbeatSendElapsed = 0
 	fc.heartbeatReceiveElapsed = 0
 	fc.reqArbitSendElapsed = 0
@@ -58,7 +61,28 @@ func newfsmCore(c *Config) *fsmCore {
 	return fc
 }
 func (fc *fsmCore) Step(m pb.Message) error {
+	switch {
+	case m.Term < fc.Term:
+
+		if (m.Type == pb.MsgArbitShrink || m.Type == pb.MsgArbitShutdown) && m.Term == fc.Term-1 && fc.state == dualRunning {
+			// 若在dualRunning状态下收到了上一term的仲裁，解除仲裁
+			fc.send(pb.MsgArbitRelease)
+		} else {
+			// 对于其他情况，忽略
+			fc.logger.Infof("[term: %d] ignored a %s message with lower term [term: %d]",
+				fc.Term, m.Type, m.Term)
+		}
+	}
 	switch m.Type {
+	case pb.MsgEtcdRunning:
+		// 如果在recoveryPending期间收到MsgEtcdRunning信号，说明扩容恢复完成
+		if fc.state == recoveryPending {
+			fc.send(pb.MsgArbitRelease)
+			fc.becomeDualRunning()
+		}
+	case pb.MsgEtcdStoped:
+		fc.becomeEtcdStoped()
+
 	default:
 		if err := fc.step(fc, m); err != nil {
 			return err
@@ -83,8 +107,12 @@ func stepDualRunning(fc *fsmCore, m pb.Message) error {
 }
 func stepFaultPending(fc *fsmCore, m pb.Message) error {
 	switch m.Type {
-
+	case pb.MsgArbitShrink:
+		fc.etcdShrink()
+	case pb.MsgArbitShutdown:
+		fc.etcdShutdown()
 	}
+
 	return nil
 }
 func stepSingleRunning(fc *fsmCore, m pb.Message) error {
@@ -93,12 +121,19 @@ func stepSingleRunning(fc *fsmCore, m pb.Message) error {
 		// recoveryPending状态下收到了MemberAddResp，说明之前发送的MemberAdd被对方接收
 		fc.becomeRecoveryPending()
 		// TODO:执行扩容
+	case pb.MsgArbitShrink:
+		fc.send(pb.MsgArbitResponse)
+	case pb.MsgArbitShutdown:
+		fc.send(pb.MsgArbitResponse)
 	}
 	return nil
 }
 func stepRecoveryPending(fc *fsmCore, m pb.Message) error {
 	switch m.Type {
-
+	case pb.MsgArbitShrink:
+		fc.send(pb.MsgArbitResponse)
+	case pb.MsgArbitShutdown:
+		fc.send(pb.MsgArbitResponse)
 	}
 	return nil
 }
@@ -109,26 +144,29 @@ func stepEtcdStoped(fc *fsmCore, m pb.Message) error {
 		// etcdStoped状态下收到了对方的MsgMemberAdd，说明对方已经尝试扩容集群
 		fc.becomeRecoveryPending()
 		// TODO:执行扩容
+	case pb.MsgArbitShrink:
+		fc.send(pb.MsgArbitResponse)
+	case pb.MsgArbitShutdown:
+		fc.send(pb.MsgArbitResponse)
 	}
 	return nil
 }
 
-func (fc *fsmCore) send(m pb.Message) {
+func (fc *fsmCore) etcdShrink() {
+	// TODO:考虑加锁
+	fc.send(pb.MsgEtcdShrink)
+}
+func (fc *fsmCore) etcdShutdown() {
+	// TODO:考虑加锁
+	fc.send(pb.MsgArbitShutdown)
+}
+func (fc *fsmCore) send(t pb.MessageType) {
+	m := pb.Message{
+		Type:  t,
+		State: pb.StateType(fc.state),
+		Term:  uint64(fc.Term),
+	}
 	fc.msgs = append(fc.msgs, m)
-}
-
-func (fc *fsmCore) requestArbitration() {
-	m := pb.Message{
-		Type: pb.MsgArbitRequest,
-	}
-	fc.send(m)
-}
-
-func (fc *fsmCore) releaseArbitration() {
-	m := pb.Message{
-		Type: pb.MsgArbitRelease,
-	}
-	fc.send(m)
 }
 
 func (fc *fsmCore) tickDualRunning() {
@@ -138,7 +176,7 @@ func (fc *fsmCore) tickDualRunning() {
 	// 判断是否该发送心跳
 	if fc.heartbeatSendElapsed >= fc.heartbeatSendTimeout {
 		fc.heartbeatSendElapsed = 0
-		fc.send(pb.Message{Type: pb.MsgHeartbeat, State: pb.DualRunning})
+		fc.send(pb.MsgHeartbeat)
 	}
 
 	// 判断来自对方的心跳是否超时
@@ -155,12 +193,12 @@ func (fc *fsmCore) tickFaultPending() {
 	// 判断是否该发送心跳
 	if fc.heartbeatSendElapsed >= fc.heartbeatSendTimeout {
 		fc.heartbeatSendElapsed = 0
-		fc.send(pb.Message{Type: pb.MsgHeartbeat, State: pb.FaultPending})
+		fc.send(pb.MsgHeartbeat)
 	}
 	// 判断是否该发送仲裁请求
 	if fc.reqArbitSendElapsed >= fc.reqArbitSendTimeout {
 		fc.reqArbitSendElapsed = 0
-		fc.send(pb.Message{Type: pb.MsgArbitRequest})
+		fc.send(pb.MsgArbitRequest)
 	}
 }
 func (fc *fsmCore) tickSingleRunning() {
@@ -169,7 +207,7 @@ func (fc *fsmCore) tickSingleRunning() {
 	// 判断是否该发送心跳
 	if fc.heartbeatSendElapsed >= fc.heartbeatSendTimeout {
 		fc.heartbeatSendElapsed = 0
-		fc.send(pb.Message{Type: pb.MsgMemberAdd, State: pb.SingleRunning})
+		fc.send(pb.MsgMemberAdd)
 	}
 }
 func (fc *fsmCore) tickRecoveryPending() {
@@ -180,7 +218,7 @@ func (fc *fsmCore) tickRecoveryPending() {
 		fc.heartbeatSendElapsed = 0
 		// 如果是新加入的节点
 		if !fc.isHasArbitrationLock {
-			fc.send(pb.Message{Type: pb.MsgMemberAddResp, State: pb.RecoveryPending})
+			fc.send(pb.MsgMemberAddResp)
 		}
 
 	}
@@ -191,7 +229,7 @@ func (fc *fsmCore) tickEtcdStoped() {
 	// 判断是否该发送心跳
 	if fc.heartbeatSendElapsed >= fc.heartbeatSendTimeout {
 		fc.heartbeatSendElapsed = 0
-		fc.send(pb.Message{Type: pb.MsgHeartbeat, State: pb.EtcdStoped})
+		fc.send(pb.MsgHeartbeat)
 	}
 }
 
