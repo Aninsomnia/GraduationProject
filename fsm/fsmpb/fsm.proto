@@ -19,10 +19,11 @@ enum MessageType {
     MsgArbitShrink = 6;
     MsgEtcdShutdown = 7;
     MsgEtcdShrink = 8;
-    MsgMemberAdd    = 9;
-    MsgMemberAddResp = 10;
-    MsgEtcdRunning = 11;
-    MsgEtcdStoped = 12;
+    MsgEtcdEnlarge = 9;
+    MsgMemberAdd    = 10;
+    MsgMemberAddResp = 11;
+    MsgEtcdRunning = 12;
+    MsgEtcdStoped = 13;
 }
 
 enum StateType {

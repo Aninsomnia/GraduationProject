@@ -99,6 +99,7 @@ func stepDualRunning(fc *fsmCore, m pb.Message) error {
 		return nil
 	case pb.MsgHeartbeat:
 		// dualRunning状态下收到了对方的异常心跳
+		fc.heartbeatReceiveElapsed = 0
 		if m.State != pb.DualRunning {
 			fc.becomeFaultPending()
 		}
@@ -119,8 +120,8 @@ func stepSingleRunning(fc *fsmCore, m pb.Message) error {
 	switch m.Type {
 	case pb.MsgMemberAddResp:
 		// recoveryPending状态下收到了MemberAddResp，说明之前发送的MemberAdd被对方接收
+		fc.etcdEnlarge()
 		fc.becomeRecoveryPending()
-		// TODO:执行扩容
 	case pb.MsgArbitShrink:
 		fc.send(pb.MsgArbitResponse)
 	case pb.MsgArbitShutdown:
@@ -142,8 +143,8 @@ func stepEtcdStoped(fc *fsmCore, m pb.Message) error {
 	switch m.Type {
 	case pb.MsgMemberAdd:
 		// etcdStoped状态下收到了对方的MsgMemberAdd，说明对方已经尝试扩容集群
+		fc.etcdEnlarge()
 		fc.becomeRecoveryPending()
-		// TODO:执行扩容
 	case pb.MsgArbitShrink:
 		fc.send(pb.MsgArbitResponse)
 	case pb.MsgArbitShutdown:
@@ -155,10 +156,17 @@ func stepEtcdStoped(fc *fsmCore, m pb.Message) error {
 func (fc *fsmCore) etcdShrink() {
 	// TODO:考虑加锁
 	fc.send(pb.MsgEtcdShrink)
+	fc.becomeSingleRunning()
 }
 func (fc *fsmCore) etcdShutdown() {
 	// TODO:考虑加锁
 	fc.send(pb.MsgArbitShutdown)
+	fc.becomeEtcdStoped()
+}
+
+func (fc *fsmCore) etcdEnlarge() {
+	// TODO:考虑加锁
+	fc.send(pb.MsgEtcdEnlarge)
 }
 func (fc *fsmCore) send(t pb.MessageType) {
 	m := pb.Message{

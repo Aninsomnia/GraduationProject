@@ -91,6 +91,13 @@ func (f *fsm) Step(ctx context.Context, msg pb.Message) error {
 func (f *fsm) Ready() <-chan Ready {
 	return f.readyc
 }
+
+func (f *fsm) Advance() {
+	select {
+	case f.advancec <- struct{}{}:
+	case <-f.done:
+	}
+}
 func (f *fsm) Stop() {
 	select {
 	// 还未准备好停止，所以先向f.stop通道触发停止信号
