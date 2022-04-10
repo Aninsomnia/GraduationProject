@@ -9,6 +9,7 @@ type FSM interface {
 	Tick()
 	Step(ctx context.Context, msg pb.Message) error
 	Ready() <-chan Ready
+	Advance()
 	Stop()
 }
 
@@ -58,6 +59,7 @@ func (f *fsm) run() {
 		case m := <-f.recvc:
 			f.fc.Step(m)
 		case <-f.tickc:
+			// 收到时钟信号
 			f.fc.tick()
 		case readyc <- rd:
 			f.fc.msgs = nil
@@ -79,7 +81,6 @@ func (f *fsm) Tick() {
 	case f.tickc <- struct{}{}:
 	case <-f.done:
 	default:
-		// TODO:完善日志输出
 		f.fc.logger.Warningf("A tick missed to fire. Node blocks too long!")
 	}
 }
@@ -110,10 +111,7 @@ func (f *fsm) Stop() {
 }
 
 func (f *fsm) hasReady() bool {
-	if len(f.fc.msgs) > 0 {
-		return true
-	}
-	return false
+	return len(f.fc.msgs) > 0
 }
 func (f *fsm) newReady() Ready {
 	rd := Ready{

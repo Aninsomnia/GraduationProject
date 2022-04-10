@@ -3,21 +3,25 @@ package controller
 import (
 	"GraduationProjection/fsm"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type bootstrappedController struct {
 	fsm *bootstrappedFsm
 }
 type bootstrappedFsm struct {
+	logger *zap.Logger
+
 	heartbeat time.Duration // fsmNode的相关配置
 
 	config *fsm.Config // fsmNode中fsmCore的相关配置
 }
 
-func bootstrap() (b *bootstrappedController, err error) {
+func bootstrap(cfg *ControllerConfig) (b *bootstrappedController, err error) {
 
 	return &bootstrappedController{
-		fsm: bootstrapFsm(),
+		fsm: bootstrapFsm(cfg),
 	}, nil
 }
 
@@ -27,6 +31,7 @@ func (b *bootstrappedFsm) newFsmNode() *fsmNode {
 
 	// 创建fsmNodeConfig
 	fsmNodeCfg := fsmNodeConfig{
+		logger:    b.logger,
 		FSM:       f,
 		heartbeat: b.heartbeat,
 	}
@@ -34,13 +39,14 @@ func (b *bootstrappedFsm) newFsmNode() *fsmNode {
 	return newFsmNode(fsmNodeCfg)
 }
 
-func bootstrapFsm() *bootstrappedFsm {
+func bootstrapFsm(cfg *ControllerConfig) *bootstrappedFsm {
 	return &bootstrappedFsm{
+		logger:    cfg.Logger,
 		heartbeat: time.Duration(1000) * time.Millisecond,
-		config:    fsmConfig(),
+		config:    fsmConfig(cfg),
 	}
 }
-func fsmConfig() *fsm.Config {
+func fsmConfig(cfg *ControllerConfig) *fsm.Config {
 	return &fsm.Config{
 		HeartbeatSendTick:    1,
 		HeartbeatReceiveTick: 10,

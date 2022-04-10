@@ -58,6 +58,7 @@ func newfsmCore(c *Config) *fsmCore {
 	fc.logger = fsmLogger
 	fc.becomeFaultPending()
 	fc.logger.Infof("fsmCore was created")
+	fc.logger.Infof("reqArbitSendTimeout %d", fc.reqArbitSendTimeout)
 	return fc
 }
 func (fc *fsmCore) Step(m pb.Message) error {

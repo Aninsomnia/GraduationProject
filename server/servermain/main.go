@@ -1,5 +1,6 @@
 package servermain
 
 func Main() {
-	startServer()
+	initCfg := newConfig()
+	startServer(initCfg)
 }

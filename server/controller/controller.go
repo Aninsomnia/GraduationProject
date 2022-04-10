@@ -1,14 +1,17 @@
 package controller
 
+import "go.uber.org/zap"
+
 type Controller struct {
 	f        fsmNode
+	logger   *zap.Logger
 	stop     chan struct{}
 	stopping chan struct{}
 	done     chan struct{}
 }
 
-func NewController() (*Controller, error) {
-	b, err := bootstrap()
+func NewController(cfg *ControllerConfig) (*Controller, error) {
+	b, err := bootstrap(cfg)
 	if err != nil {
 		return nil, err
 	}
